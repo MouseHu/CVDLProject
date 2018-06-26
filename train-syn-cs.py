@@ -9,15 +9,15 @@ from torch.optim import lr_scheduler
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from fcn import VGGNet, FCN32s, FCN16s, FCN8s, FCNs
+from net.fcn import VGGNet, FCN32s, FCN16s, FCN8s, FCNs
 
-from Synthia_cityscapes import SynthiaCityscapesDataset
+from loader.Synthia_cityscapes import SynthiaCityscapesDataset
 from matplotlib import pyplot as plt
 import numpy as np
 import time
 import sys
 import os
-
+from datetime import datetime
 
 n_class    = 23
 
@@ -28,9 +28,10 @@ momentum   = 0
 w_decay    = 1e-5
 step_size  = 50
 gamma      = 0.5
-configs    = "FCNs_batch{}_epoch{}_RMSprop_scheduler-step{}-gamma{}_lr{}_momentum{}_w_decay{}".format(batch_size, epochs, step_size, gamma, lr, momentum, w_decay)
+configs    = "batch{}_epoch{}_step{}_gamma{}_lr{}_momentum{}_w_decay{}".format(batch_size, epochs, step_size, gamma, lr, momentum, w_decay)
 print("Configs:", configs)
-
+use_gpu = torch.cuda.is_available()
+num_gpu = list(range(torch.cuda.device_count()))
 ###
 root_dir="/shuju/huhao/synthia-cityscapes/"
 train_file = os.path.join(root_dir, "train.txt")
@@ -42,8 +43,7 @@ if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 model_path = os.path.join(model_dir, configs)
 
-use_gpu = torch.cuda.is_available()
-num_gpu = list(range(torch.cuda.device_count()))
+
 
 
 train_data = SynthiaCityscapesDataset(phase='train')
@@ -70,8 +70,7 @@ scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # 
 score_dir = os.path.join("scores", configs)
 if not os.path.exists(score_dir):
     os.makedirs(score_dir)
-IU_scores    = np.zeros((epochs, n_class))
-pixel_scores = np.zeros(epochs)
+
 
 
 def train():
@@ -113,65 +112,49 @@ def train():
         val(epoch)
 
 
-def val(epoch):
+def val(dataset):
     fcn_model.eval()
-    total_ious = []
-    pixel_accs = []
-    print("here is ok")
-    for iter, batch in enumerate(val_loader):
+    #print("here?"+str(dataset))
+    hist = np.zeros((n_class, n_class))
+    for iters, batch in enumerate(val_loader):
+	#print(0)
         if use_gpu:
             inputs = Variable(batch['X'].cuda())
         else:
             inputs = Variable(batch['X'])
-	inputs2=torch.zeros(inputs.shape[0],inputs.shape[1],768,1280)
-    	inputs2[:,:,4:-4,:]=inputs
-    	output = fcn_model(inputs2)
-        #output = fcn_model(inputs)
-	output=output[:,:,4:-4,:]
+	#print(1)
+        inputs_pad=torch.zeros(1,3,768,1280)####
+	inputs_pad[:,:,4:-4,:]=inputs####
+        output = fcn_model(inputs_pad)
         output = output.data.cpu().numpy()
-
+	output=output[:,:,4:-4,:]###
+	#print(2)
         N, _, h, w = output.shape
-        pred = output.transpose(0, 2, 3, 1).reshape(-1, n_class).argmax(axis=1).reshape(N, h, w)
-
+        pred = output.argmax(axis=1).reshape(N, h, w)
+	#pred = compat(pred)
         target = batch['l'].cpu().numpy().reshape(N, h, w)
-        for p, t in zip(pred, target):
-            total_ious.append(iou(p, t))
-            pixel_accs.append(pixel_acc(p, t))
+	target[np.where(target==-100)]=0
+	#target=compat(target,"val")
+	hist += fast_hist(pred.flatten(),target.flatten(), n_class)
+        print(iters)
 
     # Calculate average IoU
-    total_ious = np.array(total_ious).T  # n_class * val_len
-    ious = np.nanmean(total_ious, axis=1)
-    pixel_accs = np.array(pixel_accs).mean()
-    print("epoch{}, pix_acc: {}, meanIoU: {}, IoUs: {}".format(epoch, pixel_accs, np.nanmean(ious), ious))
-    IU_scores[epoch] = ious
-    np.save(os.path.join(score_dir, "meanIU"), IU_scores)
-    pixel_scores[epoch] = pixel_accs
-    np.save(os.path.join(score_dir, "meanPixel"), pixel_scores)
+    acc = np.diag(hist).sum() / hist.sum()
+    print ('>>>', datetime.now(), 'overall accuracy', acc)
+    # per-class accuracy
+    acc = np.diag(hist) / hist.sum(1)
+    print ('>>>', datetime.now(),  'mean accuracy', np.nanmean(acc))
+    # per-class IU
+    iu = np.diag(hist) / (hist.sum(1) + hist.sum(0) - np.diag(hist))
+    print ('>>>', datetime.now(),'mean IU', np.nanmean(iu))
+    print ('>>>', datetime.now(),'IU', iu)
 
 
-# borrow functions and modify it from https://github.com/Kaixhin/FCN-semantic-segmentation/blob/master/main.py
-# Calculates class intersections over unions
-def iou(pred, target):
-    ious = []
-    for cls in range(n_class):
-        pred_inds = pred == cls
-	target_inds = target == cls
-        intersection = pred_inds[target_inds].sum()
-        union = pred_inds.sum() + target_inds.sum() - intersection
-        if union == 0:
-            ious.append(float('nan'))  # if there is no ground truth, do not include in evaluation
-        else:
-            ious.append(float(intersection) / max(union, 1))
-        # print("cls", cls, pred_inds.sum(), target_inds.sum(), intersection, float(intersection) / max(union, 1))
-    return ious
-
-
-def pixel_acc(pred, target):
-    correct = (pred == target).sum()
-    total   = (target == target).sum()
-    return correct / total
+def fast_hist(a, b, n):
+    k = (a >= 0) & (a < n)
+    return np.bincount(n * a[k].astype(int) + b[k], minlength=n**2).reshape(n, n)
 
 
 if __name__ == "__main__":
-    #val(0)  # show the accuracy before training
+    val(0)  # show the accuracy before training
     train()

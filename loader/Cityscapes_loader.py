@@ -17,23 +17,29 @@ from torchvision import utils
 root_dir   = "/shuju/segmentation/"
 train_file = os.path.join(root_dir, "train.lst")
 val_file   = os.path.join(root_dir, "val.lst")
+label_file   = os.path.join(root_dir, "label.lst")
 
-num_class = 20
+num_class = 34
 means     = np.array([103.939, 116.779, 123.68]) / 255. # mean of three channels in the order of BGR
 h, w      = 1024,2048
-train_h   = int(h/2)  # 512
-train_w   = int(w/2)  # 1024
+train_h   = 380  # 512
+train_w   = 640  # 1024
 val_h     = h  # 1024
 val_w     = w  # 2048
 
 
-class CityScapesDataset(Dataset):
+class CityscapesDataset(Dataset):
 
-    def __init__(self, csv_file, phase, n_class=num_class, crop=False, flip_rate=0.):
-        self.data      = pd.read_csv(csv_file)
+    def __init__(self, phase, n_class=num_class, crop=False, flip_rate=0.):
+	if phase=="train":        
+		self.data      = open(train_file).readlines()
+		self.label     = open(label_file).readlines()
+	else:
+		self.data=open(val_file).readlines()
+		self.label     = open(label_file).readlines()
         self.means     = means
         self.n_class   = n_class
-
+	self.phase=phase
         self.flip_rate = flip_rate
         self.crop      = crop
         if phase == 'train':
@@ -46,12 +52,10 @@ class CityScapesDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        img_name   = self.data.ix[idx, 0]
-        img        = scipy.misc.imread(img_name, mode='RGB')
-        label_name = self.data.ix[idx, 1]
-        label      = scipy.misc.imread(label_name, mode='RGB')
-	label=self.convert(label)
-	label=self.compatible(label)
+        img        = scipy.misc.imread('{}/cityscapes/{}'.format(root_dir ,self.data[idx].rstrip("\n")), mode='RGB')
+        label      = scipy.misc.imread('{}/cityscapes/{}'.format(root_dir, self.label[idx].rstrip("\n")), mode='L')
+	#label=self.convert(label)
+	#label=self.compatible(label)
         if self.crop:
             h, w, _ = img.shape
             top   = random.randint(0, h - self.new_h)
@@ -93,10 +97,14 @@ class CityScapesDataset(Dataset):
 	#print(new_label.shape)
 	for i in range(h):
 		for j in range(w):
-			new_label[i,j]=labels[(label[i,j][0],label[i,j][1],label[i,j][2])]
+			try:
+				new_label[i,j]=labels[(label[i,j][0],label[i,j][1],label[i,j][2])]
+			except KeyError:
+				new_label[i,j]=-100
 	return new_label
     def compatible(self,label):
-	convert={1:0,1:1:100,2:100,}
-	for i in range(label.shape[0]):
-		for j in range(label.shape[1]):
-			label[i,j]=convert[label[i,j]]
+	pass
+	#convert={1:0,1:1:100,2:100,}
+	#for i in range(label.shape[0]):
+	#	for j in range(label.shape[1]):
+	#		label[i,j]=convert[label[i,j]]
