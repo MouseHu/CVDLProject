@@ -22,10 +22,16 @@ label_file   = os.path.join(root_dir, "label.lst")
 num_class = 34
 means     = np.array([103.939, 116.779, 123.68]) / 255. # mean of three channels in the order of BGR
 h, w      = 1024,2048
-train_h   = 380  # 512
-train_w   = 640  # 1024
+train2_h   = 380  # 512
+train2_w   = 640  # 1024
+
+train_h   = 512  # 512
+train_w   = 1024  # 1024
+
 val_h     = h  # 1024
 val_w     = w  # 2048
+test_h     = 768  # 1024
+test_w     = 1280  # 2048
 
 
 class CityscapesDataset(Dataset):
@@ -47,7 +53,19 @@ class CityscapesDataset(Dataset):
             self.flip_rate = 0.5
             self.new_h = train_h
             self.new_w = train_w
-
+	elif phase == 'train2':
+            self.crop = True
+            self.flip_rate = 0.5
+            self.new_h = train2_h
+            self.new_w = train2_w
+	elif phase == 'test':
+	    self.crop = True
+            self.flip_rate = 0
+            self.new_h = test_h
+            self.new_w = test_w
+	else:
+	    self.new_h = val_h
+            self.new_w = val_w
     def __len__(self):
         return len(self.data)
 

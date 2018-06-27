@@ -9,14 +9,14 @@ from torch.optim import lr_scheduler
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from fcn import VGGNet, FCN32s, FCN16s, FCN8s, FCNs
-from fcn2 import VGGNet,Deconv
-from cgan import CGAN,Dis
+from net.fcn import VGGNet, FCN32s, FCN16s, FCN8s, FCNs
+from net.deconv import VGGNet,Deconv
+from net.cgan import CGAN,Dis
 from datetime import datetime
-from Synthia_cityscapes import SynthiaCityscapesDataset
-from Cityscapes_loader import CityscapesDataset
-from Synthia_loader import SynthiaDataset
-from Cityscapes_loader import CityscapesDataset
+from loader.Synthia_cityscapes import SynthiaCityscapesDataset
+from loader.Cityscapes_loader import CityscapesDataset
+from loader.Synthia_loader import SynthiaDataset
+from loader.Cityscapes_loader import CityscapesDataset
 from matplotlib import pyplot as plt
 import numpy as np
 import time
@@ -69,8 +69,8 @@ if use_gpu:
     
     print("Finish cuda loading, time elapsed {}".format(time.time() - ts))
 
-vgg_model.load_state_dict(torch.load(model_dir+"vgg_model_epoch6.pth").state_dict())
-deconv_model.load_state_dict(torch.load(model_dir+"deconv_model_epoch6.pth").state_dict())
+vgg_model.load_state_dict(torch.load(model_dir+"vgg_model_epoch10.pth").state_dict())
+deconv_model.load_state_dict(torch.load(model_dir+"deconv_model_epoch10.pth").state_dict())
 criterion = nn.CrossEntropyLoss()
 #optimizer = optim.RMSprop(fcn_model.parameters(), lr=lr, momentum=momentum, weight_decay=w_decay)
 #scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # decay LR by a factor of 0.5 every 30 epochs
@@ -84,9 +84,8 @@ pixel_scores = np.zeros(epochs)
 
 def compat(target,phase="train"):
 ###make results comparable
-	convert={0:3,1:4,2:13,3:-100,4:10,5:17,6:8,7:18,8:19,9:20,10:12,11:11,12:-100,13:-100
-,14:2,15:21,16:5,17:-100,18:-100,19:-100,20:7,21:-100,22:9,23:15,24:6,25:16,26:1,27:0,28:0,29:0,
-30:-100,31:-100,32:-100,33:-100,-100:-100}
+	convert={0:0,1:0,2:0,3:0,4:0,5:0,6:0,7:3,8:4,9:13,10:0,11:2,12:21,13:5,14:0,15:0,16:0,17:7,18:0,19:15,20:9,21:6,22:0,23:1,24:10,25:17
+,26:8,27:18,28:19,29:0,30:0,31:20,32:12,33:11,-100:-100}
 	new=np.zeros(target.shape).astype(int)
 	#print(target.shape)
 	for i in range(target.shape[1]):
@@ -138,24 +137,7 @@ def val(dataset):
 def fast_hist(a, b, n):
     k = (a >= 0) & (a < n)
     return np.bincount(n * a[k].astype(int) + b[k], minlength=n**2).reshape(n, n)
-# Calculates class intersections over unions
-def compute_hist(net, save_dir, dataset,):
-    n_cl = net.blobs[layer].channels
-    
-    hist = np.zeros((n_cl, n_cl))
-    loss = 0
-    for idx in dataset:
-        net.forward()
-        hist += fast_hist(net.blobs[gt].data[0, 0].flatten(),
-                                net.blobs[layer].data[0].argmax(0).flatten(),
-                                n_cl)
 
-        if save_dir:
-            im = Image.fromarray(net.blobs[layer].data[0].argmax(0).astype(np.uint8), mode='P')
-            im.save(os.path.join(save_dir, idx + '.png'))
-        # compute the loss as well
-        loss += net.blobs['loss'].data.flat[0]
-    return hist, loss / len(dataset)
 
 
 if __name__ == "__main__":

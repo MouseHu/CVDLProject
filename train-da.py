@@ -16,8 +16,8 @@ import numpy as np
 import time
 import sys
 import os
-from itertools import *
-
+from itertools import *	
+from datetime import datetime
 #######  super parameter settings
 n_class    = 23
 alpha=0.5
@@ -53,7 +53,7 @@ model_path = os.path.join(model_dir, configs)
 source_data = SynthiaCityscapesDataset(phase='train')
 source_loader = DataLoader(source_data, batch_size=source_batch_size, shuffle=True, num_workers=8)
 
-target_data = CityscapesDataset(phase='train', flip_rate=0)
+target_data = CityscapesDataset(phase='train2', flip_rate=0)
 target_loader = DataLoader(target_data, batch_size=target_batch_size,shuffle=True, num_workers=8)
 
 val_data = CityscapesDataset(phase='val', flip_rate=0)
@@ -85,13 +85,13 @@ optimizer = optim.RMSprop(list(vgg_model.parameters())+list(gan_model.parameters
 
 scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # decay LR by a factor of 0.5 every 30 epochs
 
-# create dir for score
-score_dir = os.path.join("scores", configs)
-if not os.path.exists(score_dir):
-    os.makedirs(score_dir)
-IU_scores    = np.zeros((epochs, n_class))
-pixel_scores = np.zeros(epochs)
-
+class_dict={0:"void",1:"sky",2:"Building",3:"Road",4:"Sidewalk",5:"Fence",6:"Vegetation",7:"Pole",8:"Car",9:"Traffic sign",10:"Pedestrian",11:"Bicycle",12:"Motorcycle",13:"Parking-slot",14:"Road-work",15:"Traffic light",16:"Terrain",17:"Rider",18:"Truck",19:"Bus",20:"Train",21:"Wall",22:"Lanemarking"}
+###continue training
+last_epoch=10
+vgg_model.load_state_dict(torch.load(model_dir+"vgg_model_epoch{}.pth".format(last_epoch)).state_dict())
+deconv_model.load_state_dict(torch.load(model_dir+"deconv_model_epoch{}.pth".format(last_epoch)).state_dict())
+gan_model.load_state_dict(torch.load(model_dir+"gan_model_epoch{}.pth".format(last_epoch)).state_dict())
+dis_model.load_state_dict(torch.load(model_dir+"dis_model_epoch{}.pth".format(last_epoch)).state_dict())
 
 def train():
     for epoch in range(epochs):
@@ -175,81 +175,74 @@ def train():
             optimizer.step()
 
             if iters % 10 == 0:
-                print("epoch{}, iter{}, loss: {}".format(epoch, iters, total_loss.item()))
+                print("epoch{}, iter{}, loss: {}".format(epoch+last_epoch, iters, total_loss.item()))
 		#print(vgg_model,gan_model,deconv_model.size(),dis_model.size())
 	    if iters % 10 == 1:
-                print("epoch{}, iter{}, loss: {}".format(epoch, iters, total_loss.item()))
+                print("epoch{}, iter{}, loss: {}".format(epoch+last_epoch, iters, total_loss.item()))
 	    iters+=1
         
-        print("Finish epoch {}, time elapsed {}".format(epoch, time.time() - ts))
-        torch.save(vgg_model, model_dir+"vgg_model_epoch"+str(epoch)+".pth")
-	torch.save(gan_model, model_dir+"gan_model_epoch"+str(epoch)+".pth")
-	torch.save(deconv_model, model_dir+"deconv_model_epoch"+str(epoch)+".pth")
-	torch.save(dis_model, model_dir+"dis_model_epoch"+str(epoch)+".pth")
-        val2(epoch)
+        print("Finish epoch {}, time elapsed {}".format(epoch+last_epoch, time.time() - ts))
+        torch.save(vgg_model, model_dir+"vgg_model_epoch"+str(epoch+last_epoch)+".pth")
+	torch.save(gan_model, model_dir+"gan_model_epoch"+str(epoch+last_epoch)+".pth")
+	torch.save(deconv_model, model_dir+"deconv_model_epoch"+str(epoch+last_epoch)+".pth")
+	torch.save(dis_model, model_dir+"dis_model_epoch"+str(epoch+last_epoch)+".pth")
+        val(epoch)
 
-def val2(epoch):
+def compat(target,phase="train"):
+###make results comparable
+	convert={0:3,1:4,2:13,3:-100,4:10,5:17,6:8,7:18,8:19,9:20,10:12,11:11,12:-100,13:-100
+,14:2,15:21,16:5,17:-100,18:-100,19:-100,20:7,21:-100,22:9,23:15,24:6,25:16,26:1,27:0,28:0,29:0,
+30:-100,31:-100,32:-100,33:-100,-100:-100}
+	new=np.zeros(target.shape).astype(int)
+	#print(target.shape)
+	for i in range(target.shape[1]):
+		for j in range(target.shape[2]):
+			new[0,i,j]=int(convert[target[0,i,j]])
+	if phase == 'val':	
+		new[np.where(new==-100)]=0
+	return new
+def val(dataset):
     vgg_model.eval()
-    gan_model.eval()
-    dis_model.eval()
     deconv_model.eval()
     hist = np.zeros((n_class, n_class))
     loss = 0
-    
-def val(epoch):
-    fcn_model.eval()
-    total_ious = []
-    pixel_accs = []
-    for iter, batch in enumerate(val_loader):
+    for iters, batch in enumerate(val_loader):
         if use_gpu:
             inputs = Variable(batch['X'].cuda())
         else:
             inputs = Variable(batch['X'])
-
-        output = fcn_model(inputs)
-	output=output[:,:,24:-24,:]
+	#print(1)
+        output = deconv_model(vgg_model(inputs)['x5'])
+	#output=output[:,:,24:-24,:]
         output = output.data.cpu().numpy()
-
+	#print(2)
         N, _, h, w = output.shape
-        pred = output.transpose(0, 2, 3, 1).reshape(-1, n_class).argmax(axis=1).reshape(N, h, w)
-
+        pred = output.transpose(0, 2, 3, 1).reshape(-1, n_class).argmax(axis=1).reshape(N, h, w).astype(int)
+	#pred = compat(pred)
         target = batch['l'].cpu().numpy().reshape(N, h, w)
-        for p, t in zip(pred, target):
-            total_ious.append(iou(p, t))
-            pixel_accs.append(pixel_acc(p, t))
+	target=compat(target,phase="val")
+	#print(3)
+        hist += fast_hist(pred.flatten(),target.flatten(), n_class)
+	print(iters)
+        acc = np.diag(hist).sum() / hist.sum()
+    print ('>>>', datetime.now(), 'overall accuracy', acc)
+    # per-class accuracy
+    acc = np.diag(hist) / hist.sum(1)
+    print ('>>>', datetime.now(),  'mean accuracy', np.nanmean(acc))
+    # per-class IU
+    iu = np.diag(hist) / (hist.sum(1) + hist.sum(0) - np.diag(hist))
+    print ('>>>', datetime.now(),'mean IU', np.nanmean(iu))
 
-    # Calculate average IoU
-    total_ious = np.array(total_ious).T  # n_class * val_len
-    ious = np.nanmean(total_ious, axis=1)
-    pixel_accs = np.array(pixel_accs).mean()
-    print("epoch{}, pix_acc: {}, meanIoU: {}, IoUs: {}".format(epoch, pixel_accs, np.nanmean(ious), ious))
-    IU_scores[epoch] = ious
-    np.save(os.path.join(score_dir, "meanIU"), IU_scores)
-    pixel_scores[epoch] = pixel_accs
-    np.save(os.path.join(score_dir, "meanPixel"), pixel_scores)
+    print ('>>>', datetime.now(),' IU', iu)
+    for i in range(n_class):
+	print(class_dict[i],iu[i])
 
 
-# borrow functions and modify it from https://github.com/Kaixhin/FCN-semantic-segmentation/blob/master/main.py
+
+def fast_hist(a, b, n):
+    k = (a >= 0) & (a < n)
+    return np.bincount(n * a[k].astype(int) + b[k], minlength=n**2).reshape(n, n)
 # Calculates class intersections over unions
-def iou(pred, target):
-    ious = []
-    for cls in range(n_class):
-        pred_inds = pred == cls
-	target_inds = target == cls
-        intersection = pred_inds[target_inds].sum()
-        union = pred_inds.sum() + target_inds.sum() - intersection
-        if union == 0:
-            ious.append(float('nan'))  # if there is no ground truth, do not include in evaluation
-        else:
-            ious.append(float(intersection) / max(union, 1))
-        # print("cls", cls, pred_inds.sum(), target_inds.sum(), intersection, float(intersection) / max(union, 1))
-    return ious
-
-
-def pixel_acc(pred, target):
-    correct = (pred == target).sum()
-    total   = (target == target).sum()
-    return correct / total
 
 
 if __name__ == "__main__":
