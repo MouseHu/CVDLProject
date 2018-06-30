@@ -45,13 +45,13 @@ val_data2 = CityscapesDataset(phase='train', flip_rate=0)
 #val_data = SynthiaCityscapesDataset(phase='val', flip_rate=0)
 val_loader = DataLoader(val_data, batch_size=1, num_workers=8)
 # create dir for model
-model_dir = "da-models/"
+model_dir = "da-2-models/"
 
 model_path = os.path.join(model_dir, "test.pth")
 
 use_gpu = torch.cuda.is_available()
 num_gpu = list(range(torch.cuda.device_count()))
-
+class_dict={0:"void",1:"sky",2:"Building",3:"Road",4:"Sidewalk",5:"Fence",6:"Vegetation",7:"Pole",8:"Car",9:"Traffic sign",10:"Pedestrian",11:"Bicycle",12:"Motorcycle",13:"Parking-slot",14:"Road-work",15:"Traffic light",16:"Terrain",17:"Rider",18:"Truck",19:"Bus",20:"Train",21:"Wall",22:"Lanemarking"}
 
 
 vgg_model = VGGNet( model='vgg19',requires_grad=True,remove_fc=True)#####change to 19
@@ -61,7 +61,7 @@ deconv_model = Deconv(n_class=n_class)####change to torch.load
 if use_gpu:
     ts = time.time()
     vgg_model = vgg_model.cuda()
-    vgg_model = nn.DataParallel(vgg_model, device_ids=num_gpu)
+    #vgg_model = nn.DataParallel(vgg_model, device_ids=num_gpu)
     deconv_model = deconv_model.cuda()
     deconv_model = nn.DataParallel(deconv_model, device_ids=num_gpu)
     #gan_model = gan_model.cuda()
@@ -69,8 +69,8 @@ if use_gpu:
     
     print("Finish cuda loading, time elapsed {}".format(time.time() - ts))
 
-vgg_model.load_state_dict(torch.load(model_dir+"vgg_model_epoch10.pth").state_dict())
-deconv_model.load_state_dict(torch.load(model_dir+"deconv_model_epoch10.pth").state_dict())
+vgg_model.load_state_dict(torch.load(model_dir+"3vgg_model_epoch1.pth").state_dict())
+deconv_model.load_state_dict(torch.load(model_dir+"3deconv_model_epoch1.pth").state_dict())
 criterion = nn.CrossEntropyLoss()
 #optimizer = optim.RMSprop(fcn_model.parameters(), lr=lr, momentum=momentum, weight_decay=w_decay)
 #scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # decay LR by a factor of 0.5 every 30 epochs
@@ -130,7 +130,8 @@ def val(dataset):
     print ('>>>', datetime.now(),'mean IU', np.nanmean(iu))
 
     print ('>>>', datetime.now(),' IU', iu)
-
+    for i in range(n_class):
+	print(class_dict[i],iu[i])
 
 # borrow functions and modify it from https://github.com/Kaixhin/FCN-semantic-segmentation/blob/master/main.py
 

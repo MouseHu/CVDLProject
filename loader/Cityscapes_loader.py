@@ -20,7 +20,9 @@ val_file   = os.path.join(root_dir, "val.lst")
 label_file   = os.path.join(root_dir, "label.lst")
 
 num_class = 34
-means     = np.array([103.939, 116.779, 123.68]) / 255. # mean of three channels in the order of BGR
+means     = np.array([72.3923987619416, 82.90891754262587,73.15835921071157 ]) / 255. # mean of three channels in the order of BGR
+#means     = np.array([103.939, 116.779, 123.68]) / 255. # mean of three channels in the order of BGR
+#means     = np.array([63.26093894066344, 70.7426398071875, 80.26536164469012]) / 255. # mean of three channels in the order of BGR
 h, w      = 1024,2048
 train2_h   = 380  # 512
 train2_w   = 640  # 1024
@@ -37,6 +39,10 @@ test_w     = 1280  # 2048
 class CityscapesDataset(Dataset):
 
     def __init__(self, phase, n_class=num_class, crop=False, flip_rate=0.):
+	root_dir   = "/shuju/segmentation/"
+	train_file = os.path.join(root_dir, "train.lst")
+	val_file   = os.path.join(root_dir, "val.lst")
+	label_file   = os.path.join(root_dir, "label.lst")
 	if phase=="train":        
 		self.data      = open(train_file).readlines()
 		self.label     = open(label_file).readlines()

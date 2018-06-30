@@ -9,8 +9,8 @@ from torch.optim import lr_scheduler
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from net.fcn import VGGNet, FCN32s, FCN16s, FCN8s, FCNs
-
+#from net.fcn import VGGNet, FCN32s, FCN16s, FCN8s, FCNs
+from net.fcn2 import VGGNet,Deconv
 from loader.Synthia_loader import SynthiaDataset
 from loader.Cityscapes_loader import CityscapesDataset
 from loader.Synthia_cityscapes import SynthiaCityscapesDataset
@@ -24,7 +24,7 @@ import os
 
 n_class    = 23
 
-batch_size = 5
+batch_size = 8
 epochs     = 500
 lr         = 1e-4
 momentum   = 0
@@ -32,7 +32,7 @@ w_decay    = 1e-5
 step_size  = 50
 gamma      = 0.5
 
-
+configs    = "batch{}_epoch{}_step{}_gamma{}_lr{}_momentum{}_w_decay{}".format(batch_size, epochs, step_size, gamma, lr, momentum, w_decay)
 ###
 root_dir="/shuju/segmentation/CityScapes/"
 train_file = os.path.join(root_dir, "train.lst")
@@ -55,22 +55,25 @@ val_loader = DataLoader(val_data, batch_size=1, num_workers=8)
 
 
 model_dir = "syn-cs-models/"
-model_path = os.path.join(model_dir, "test.pth")
+model_path = os.path.join(model_dir, configs)
 use_gpu = torch.cuda.is_available()
 num_gpu = list(range(torch.cuda.device_count()))
 
 
 
 vgg_model = VGGNet( model='vgg19',requires_grad=True,remove_fc=True)#####change to 19
-fcn_model = FCNs(pretrained_net=vgg_model, n_class=n_class)
+deconv_model = Deconv( n_class=n_class)
 
 if use_gpu:
     ts = time.time()
     vgg_model = vgg_model.cuda()
-    fcn_model = fcn_model.cuda()
-    fcn_model = nn.DataParallel(fcn_model, device_ids=num_gpu)
+    deconv_model = deconv_model.cuda()
+    deconv_model = nn.DataParallel(deconv_model, device_ids=num_gpu)
     print("Finish cuda loading, time elapsed {}".format(time.time() - ts))
-fcn_model.load_state_dict(torch.load(model_dir+"batch8_epoch500_step50_gamma0.5_lr0.0001_momentum0_w_decay1e-0523.pth").state_dict())
+
+last_epoch=2
+vgg_model.load_state_dict(torch.load(model_path+"vgg"+str(last_epoch)+".pth").state_dict())
+deconv_model.load_state_dict(torch.load(model_path+"deconv"+str(last_epoch)+".pth").state_dict())
 
 criterion = nn.CrossEntropyLoss()
 #optimizer = optim.RMSprop(fcn_model.parameters(), lr=lr, momentum=momentum, weight_decay=w_decay)
@@ -94,7 +97,8 @@ def compat(target,phase="train"):
 		new[np.where(new==-100)]=0
 	return new
 def val(dataset):
-    fcn_model.eval()
+    vgg_model.eval()
+    deconv_model.eval()
     total_ious = []
     pixel_accs = []
     hist = np.zeros((n_class, n_class))
@@ -106,11 +110,11 @@ def val(dataset):
 	if dataset == 'synthia':
         	inputs_pad=torch.zeros(1,3,384,640)####
 		inputs_pad[:,:,2:-2,:]=inputs####
-        	output = fcn_model(inputs_pad)
+        	output = deconv_model(vgg_model(inputs_pad)['x5'])
         	output = output.data.cpu().numpy()
 		output=output[:,:,2:-2,:]###
 	else:
-		output = fcn_model(inputs)
+		output = deconv_model(vgg_model(inputs)['x5'])
         	output = output.data.cpu().numpy()
         N, _, h, w = output.shape
         pred = output.argmax(axis=1).reshape(N, h, w)

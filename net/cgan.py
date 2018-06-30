@@ -41,7 +41,7 @@ class Dis(nn.Module):
 		super(Dis,self).__init__()
 		self.fc1=nn.Linear(in_channel,1024)
 		self.fc2=nn.Linear(1024,1024)
-		self.out=nn.Linear(1024,2)
+		self.out=nn.Linear(1024,1)
 		self.sigmoid=nn.Sigmoid()
 	def forward(self,x):
 		r1=self.fc1(x)

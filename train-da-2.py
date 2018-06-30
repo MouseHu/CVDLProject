@@ -11,6 +11,7 @@ from net.deconv import VGGNet,Deconv
 from net.cgan import CGAN,Dis
 from loader.Synthia_cityscapes import SynthiaCityscapesDataset
 from loader.Cityscapes_loader import CityscapesDataset
+from loader.source_target_loader import Source_Target_Dataset
 from matplotlib import pyplot as plt
 import numpy as np
 import time
@@ -24,10 +25,10 @@ from datetime import datetime
 #######  super parameter settings
 n_class    = 23
 alpha=0.5
-source_batch_size = 1
-target_batch_size = 1
+source_batch_size = 4
+target_batch_size = 4
 batch_size = 8
-epochs     = 50
+epochs     = 500
 lr         = 1e-4
 momentum   = 0
 w_decay    = 1e-5
@@ -52,8 +53,8 @@ target_val_file=os.path.join(target_dir, "val.txt")
 
 
 
-model_dir = "da-models/"
-model_dir2 = "syn-cs-models/"
+model_dir = "da-2-models/"
+init_model_dir = "syn-cs-models/"
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 model_path = os.path.join(model_dir, configs)
@@ -69,6 +70,8 @@ target_loader = DataLoader(target_data, batch_size=target_batch_size,shuffle=Tru
 val_data = CityscapesDataset(phase='val', flip_rate=0)
 val_loader = DataLoader(val_data, batch_size=1, num_workers=8)
 
+source_target_data=Source_Target_Dataset(phase='train')
+source_target_loader=DataLoader(source_target_data, batch_size=2, num_workers=8)
 
 vgg_model = VGGNet( model='vgg19',requires_grad=True,remove_fc=True)#####change to 19
 deconv_model = Deconv(n_class=n_class)####change to torch.load
@@ -88,10 +91,12 @@ if use_gpu:
     print("Finish cuda loading, time elapsed {}".format(time.time() - ts))
 
 
-
-criterion = nn.CrossEntropyLoss()
-
+#criterion1 = GANLoss()
+criterion2 = nn.CrossEntropyLoss()
+criterion3 = nn.CrossEntropyLoss()
 optimizer = optim.RMSprop(list(vgg_model.parameters())+list(gan_model.parameters())+list(dis_model.parameters())+list(deconv_model.parameters()), lr=lr, momentum=momentum, weight_decay=w_decay)
+optimizerG = optim.RMSprop(list(vgg_model.parameters())+list(gan_model.parameters()), lr=lr, momentum=momentum, weight_decay=w_decay)
+optimizerD = optim.RMSprop(list(dis_model.parameters())+list(deconv_model.parameters()), lr=lr*0.1, momentum=momentum, weight_decay=w_decay)
 
 scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # decay LR by a factor of 0.5 every 30 epochs
 
@@ -100,13 +105,18 @@ class_dict={0:"void",1:"sky",2:"Building",3:"Road",4:"Sidewalk",5:"Fence",6:"Veg
 
 
 ###continue training
-last_epoch=10
-#vgg_model.load_state_dict(torch.load(model_dir+"vgg_model_epoch{}.pth".format(last_epoch)).state_dict())
-#deconv_model.load_state_dict(torch.load(model_dir+"deconv_model_epoch{}.pth".format(last_epoch)).state_dict())
-vgg_model.load_state_dict(torch.load(model_dir+"vgg_model_epoch{}.pth".format(last_epoch)).state_dict())
-deconv_model.load_state_dict(torch.load(model_dir+"deconv_model_epoch{}.pth".format(last_epoch)).state_dict())
-gan_model.load_state_dict(torch.load(model_dir+"gan_model_epoch{}.pth".format(last_epoch)).state_dict())
-dis_model.load_state_dict(torch.load(model_dir+"dis_model_epoch{}.pth".format(last_epoch)).state_dict())
+last_epoch=0
+init_load=False
+init_epoch=17
+load=False
+if init_load==True:
+	vgg_model.load_state_dict(torch.load(init_model_dir+configs+"vgg{}.pth".format(init_epoch)).state_dict())	
+	deconv_model.load_state_dict(torch.load(init_model_dir+configs+"deconv{}.pth".format(init_epoch)).state_dict())
+if load==True:
+	vgg_model.load_state_dict(torch.load(model_dir+"vgg_model_epoch{}.pth".format(last_epoch)).state_dict())
+	deconv_model.load_state_dict(torch.load(model_dir+"deconv_model_epoch{}.pth".format(last_epoch)).state_dict())
+	gan_model.load_state_dict(torch.load(model_dir+"gan_model_epoch{}.pth".format(last_epoch)).state_dict())
+	dis_model.load_state_dict(torch.load(model_dir+"dis_model_epoch{}.pth".format(last_epoch)).state_dict())
 
 def train():
     for epoch in range(epochs):
@@ -114,7 +124,8 @@ def train():
 
         ts = time.time()
 	iters=0
-        for  batch1,batch2 in izip(source_loader,target_loader):
+        for batch1,batch2 in source_target_loader:
+	    #print(batch1,batch2)
             optimizer.zero_grad()
 	    #batch2=target_loader[iter]
 	    #batch2
@@ -125,7 +136,7 @@ def train():
             else:
                 source_inputs, source_labels = Variable(batch1['X']), Variable(batch1['l'])
 		target_inputs=Variable(batch2['X'])
-
+	 #   print(source_inputs.shape,target_inputs.shape)
 	    inputs_pad=torch.zeros(source_inputs.shape[0],source_inputs.shape[1],384,640)
 	    inputs_pad[:,:,2:-2,:]=source_inputs
 	    target_pad=torch.zeros(target_inputs.shape[0],target_inputs.shape[1],384,640)
@@ -141,66 +152,81 @@ def train():
 	    #print("adapt_feature",np.prod(list(adapt_feature.shape))*4.0/1024/1024)
 	    #print("target_feature",np.prod(list(adapt_feature.shape))*4.0/1024/1024)
 	    adapt_feature = gan_model(adapt_feature)+source_feature
-	    if iters%2==0:
-		source_feature=source_feature.detach()
-		target_feature=target_feature.detach()
-		adapt_feature=adapt_feature.detach()
+#	    if iters%2==0:
+#		source_feature=source_feature.detach()
+#		target_feature=target_feature.detach()
+#		adapt_feature=adapt_feature.detach()
 	    
 	
-	    dis_gt=torch.zeros(source_inputs.shape[0]+target_inputs.shape[0]).long()
+	    #dis_gt=torch.zeros(source_inputs.shape[0]+target_inputs.shape[0]).long()
 	    #print(dis_gt)
-	    dis_gt[0:source_inputs.shape[0]]=0
-	    dis_gt[source_inputs.shape[0]:]=1
-	    if use_gpu:
-		dis_gt=dis_gt.cuda()
+	    #dis_gt[0:source_inputs.shape[0]]=0
+	    ##dis_gt[source_inputs.shape[0]:]=1
+	    #if use_gpu:
+		#dis_gt=dis_gt.cuda()
+	    
 	    dis_input=torch.cat((adapt_feature,target_feature),dim=0)
 	    #print("dis_input",np.prod(list(dis_input.shape))*4.0/1024/1024)
-	    #print(dis_pred.shape)
+	    #print(adapt_feature.shape,target_feature.shape,dis_input.shape)
 	    dis_input=dis_input.view(dis_input.shape[0],-1)
 	    dis_pred=dis_model(dis_input)
-	    
+	    #print(dis_input.shape,dis_pred.shape)
+	    pred=torch.Tensor(dis_pred.shape)
+	    pred[0:source_inputs.shape[0]]=1-dis_pred[0:source_inputs.shape[0]]
+	    pred[source_inputs.shape[0]:]=dis_pred[source_inputs.shape[0]:]
+	    #print(pred)
 	    #dis_pred=dis_pred.view(dis_pred.shape[0],-1)
-	    dis_loss=criterion(dis_pred,dis_gt)
+	    dis_loss=-torch.sum(torch.log(dis_pred))
 	    
 	    seg_pred1=deconv_model(source_feature)
 	    seg_pred1=seg_pred1[:,:,2:-2,:]
+
 	    seg_pred2=deconv_model(adapt_feature)
 	    seg_pred2=seg_pred2[:,:,2:-2,:]
 	    #print("seg_pred1",np.prod(list(seg_pred1.shape))*4.0/1024/1024)
 	    #print("seg_pred2",np.prod(list(seg_pred2.shape))*4.0/1024/1024)
-	    if iters%2==1:
-		seg_pred1=seg_pred1.detach()
-		seg_pred2=seg_pred2.detach()
+#	    if iters%2==1:
+#		seg_pred1=seg_pred1.detach()
+#		seg_pred2=seg_pred2.detach()
 
-	    seg_loss1=criterion(seg_pred1, source_labels)
-	    seg_loss2=criterion(seg_pred2, source_labels)
+	    seg_loss1=criterion2(seg_pred1, source_labels)
+	    seg_loss2=criterion3(seg_pred2, source_labels)
 	    
 	    #N, _, h, w = outputs.shape
 	
             #pred = torch.max(outputs,dim=1)[1].reshape(N, h, w)
 	    #print(outputs.shape,labels.shape)
-            total_loss=(seg_loss1+seg_loss2)/2+alpha*dis_loss
+            if iters%2==0:
+	    	total_loss=(seg_loss1+seg_loss2)/2-alpha*dis_loss
+		total_loss.backward()
+		optimizerG.step()
+	    else:
+		total_loss=(seg_loss1+seg_loss2)/2+alpha*dis_loss
+		total_loss.backward()
+		optimizerD.step()
 	    #print("total_loss",np.prod(list(total_loss.shape))*4.0/1024/1024)
-	    if iters%2==1:###GAN
-		total_loss=-total_loss
+#	    if iters%2==1:###GAN
+#		total_loss=-total_loss
 	    
 				
 		
-            total_loss.backward()
-            optimizer.step()
+            
+            
 
             if iters % 10 == 0:
                 print("epoch{}, iter{}, loss: {}".format(epoch+last_epoch, iters, total_loss.item()))
+		print("seg_loss1:{},seg_loss2:{},dis_loss:{}".format(seg_loss1,seg_loss2,dis_loss))
 		#print(vgg_model,gan_model,deconv_model.size(),dis_model.size())
 	    if iters % 10 == 1:
                 print("epoch{}, iter{}, loss: {}".format(epoch+last_epoch, iters, total_loss.item()))
+		print("seg_loss1:{},seg_loss2:{},dis_loss:{}".format(seg_loss1,seg_loss2,dis_loss))
 	    iters+=1
         
         print("Finish epoch {}, time elapsed {}".format(epoch+last_epoch, time.time() - ts))
-        torch.save(vgg_model, model_dir+"vgg_model_epoch"+str(epoch+last_epoch)+".pth")
-	torch.save(gan_model, model_dir+"gan_model_epoch"+str(epoch+last_epoch)+".pth")
-	torch.save(deconv_model, model_dir+"deconv_model_epoch"+str(epoch+last_epoch)+".pth")
-	torch.save(dis_model, model_dir+"dis_model_epoch"+str(epoch+last_epoch)+".pth")
+        torch.save(vgg_model, model_dir+"3vgg_model_epoch"+str(epoch+last_epoch)+".pth")
+	torch.save(gan_model, model_dir+"3gan_model_epoch"+str(epoch+last_epoch)+".pth")
+	torch.save(deconv_model, model_dir+"3deconv_model_epoch"+str(epoch+last_epoch)+".pth")
+	torch.save(dis_model, model_dir+"3dis_model_epoch"+str(epoch+last_epoch)+".pth")
         val(epoch)
 
 def compat(target,phase="train"):
@@ -261,5 +287,5 @@ def fast_hist(a, b, n):
 
 
 if __name__ == "__main__":
-    val(0)  # show the accuracy before training
+    #val(0)  # show the accuracy before training
     train()

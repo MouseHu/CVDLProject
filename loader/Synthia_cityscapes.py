@@ -19,7 +19,8 @@ train_file = os.path.join(root_dir, "train.txt")
 val_file   = os.path.join(root_dir, "test.txt")
 
 num_class = 23
-means     = np.array([103.939, 116.779, 123.68]) / 255. # mean of three channels in the order of BGR
+#80.26536164469012, 70.7426398071875, 63.26093894066344
+means     = np.array([63.26093894066344, 70.7426398071875, 80.26536164469012]) / 255. # mean of three channels in the order of BGR
 h, w      = 760,1280
 train_h   = h/2  
 train_w   = w/2 

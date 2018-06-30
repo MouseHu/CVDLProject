@@ -63,20 +63,18 @@ num_gpu = list(range(torch.cuda.device_count()))
 
 
 
-vgg_model = VGGNet( model='vgg19',requires_grad=True,remove_fc=True)#####change to 19
-
-fcn_model = FCNs(pretrained_net=vgg_model, n_class=n_class)
-
+last_epoch=17
+vgg_model.load_state_dict(torch.load(model_path+"vgg"+str(last_epoch)+".pth").state_dict())
+deconv_model.load_state_dict(torch.load(model_path+"deconv"+str(last_epoch)+".pth").state_dict())
 
 if use_gpu:
     ts = time.time()
     vgg_model = vgg_model.cuda()
-    fcn_model = fcn_model.cuda()
-    fcn_model = nn.DataParallel(fcn_model, device_ids=num_gpu)
+    deconv_model = fcn_model.cuda()
+    deconv_model = nn.DataParallel(fcn_model, device_ids=num_gpu)
     
     print("Finish cuda loading, time elapsed {}".format(time.time() - ts))
 
-fcn_model.load_state_dict(torch.load(model_dir+"112.pth").state_dict())
 
 criterion = nn.CrossEntropyLoss()
 
@@ -95,7 +93,8 @@ def toImage(pred):
     return np.uint8(img)
 
 def infer(dataset,ori=True):
-    fcn_model.eval()
+    vgg_model.eval()
+    deconv_model.eval()
     
     hist = np.zeros((n_class, n_class))
     loss = 0
